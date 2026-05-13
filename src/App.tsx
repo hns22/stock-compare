@@ -281,14 +281,7 @@ export default function App() {
         </>
       )}
 
-      <p className="footnote">
-        한국 시세는 네이버 금융 API, 미국은 Finnhub(키 있을 때) 또는 Yahoo, 환율은
-        Frankfurter(ECB)입니다. 로컬에서는 Vite 프록시를 쓰고,{" "}
-        <strong>Vercel</strong> 등에 올리면 <code>vercel.json</code> 리라이트와{" "}
-        <code>api/yahoo.ts</code>로 같은 방식이 동작합니다. 프로젝트 루트는{" "}
-        <code>stock-compare</code> 폴더이며, 배포 시{" "}
-        <code>VITE_FINNHUB_API_KEY</code>를 환경 변수로 넣어 주세요.
-      </p>
+      <p className="footnote footnote--credit">made by HNS</p>
     </div>
   );
 }
