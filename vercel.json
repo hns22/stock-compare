@@ -1,0 +1,23 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/frankfurter/:path*",
+      "destination": "https://api.frankfurter.dev/:path*"
+    },
+    {
+      "source": "/naver/:path*",
+      "destination": "https://m.stock.naver.com/:path*"
+    },
+    {
+      "source": "/finnhub/:path*",
+      "destination": "https://finnhub.io/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
