@@ -44,7 +44,9 @@ function Panel({
             <th>종목</th>
             <th className="num">현재가</th>
             <th className="num">등락</th>
-            <th className="num">USD 환산</th>
+            <th className="num">
+              {market === "KR" ? "시가총액(KRW)" : "시가총액(USD)"}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -67,7 +69,7 @@ function Panel({
               >
                 {formatPct(r.changePct)}
               </td>
-              <td className="num">{formatMoney(r.priceUsd, "USD")}</td>
+              <td className="num">{r.marketCapText ?? "—"}</td>
             </tr>
           ))}
         </tbody>
@@ -193,11 +195,8 @@ export default function App() {
       <header className="header">
         <h1>한·미 대표 기업 주가 비교</h1>
         <p>
-          한국과 미국의 주요 10개 대표 종목 시세를 한 화면에서 비교할 수 있는
+          한국과 미국의 주요 10개 기업 시세를 한 화면에서 비교할 수 있는
           대시보드입니다.
-          <br />
-          원화로 표시되는 한국 종목은 USD/KRW 환율을 적용해 달러 환산가를 함께
-          제공합니다.
           <br />
           데이터 출처: 한국 종목 – 네이버 금융, 미국 종목 – Finnhub · Yahoo Finance,
           환율 – Frankfurter API
@@ -241,8 +240,7 @@ export default function App() {
           <section className="rank-section" aria-labelledby="rank-heading">
             <h2 id="rank-heading">오늘의 상승률 TOP 3</h2>
             <p className="rank-hint">
-              위 10개 종목 중 당일 <strong>상승(+)</strong>한 종목만 등락률 높은
-              순으로 최대 3곳입니다.
+              위 10개 종목 중 당일 상승(+)한 종목만 등락률 높은 순으로 상위 3개 종목을 보여줍니다.
             </p>
             {gainRankTop3.length === 0 ? (
               <p className="rank-empty">

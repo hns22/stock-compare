@@ -8,7 +8,8 @@ export type QuoteRow = {
   priceNative: number;
   currency: string;
   changePct: number | null;
-  priceUsd: number;
+  /** 표시용 시가총액: 한국은 KRW(조), 미국은 USD($) 문자열. 없으면 null */
+  marketCapText: string | null;
 };
 
 type YahooQuote = {
@@ -18,11 +19,25 @@ type YahooQuote = {
   regularMarketPrice?: number;
   currency?: string;
   regularMarketChangePercent?: number;
+  marketCap?: number;
+  regularMarketMarketCap?: number;
 };
 
 type YahooQuoteResponse = {
   quoteResponse?: {
     result?: YahooQuote[];
+    error?: { description?: string } | null;
+  };
+};
+
+/** v7 quote에 시총이 없을 때 보강용 */
+type YahooQuoteSummary = {
+  quoteSummary?: {
+    result?: Array<{
+      summaryDetail?: {
+        marketCap?: { raw?: number };
+      };
+    }>;
     error?: { description?: string } | null;
   };
 };
@@ -44,7 +59,17 @@ type NaverStockBasic = {
   itemCode?: string;
 };
 
-const CACHE_PREFIX = "stock-compare:v4:";
+type NaverTotalInfo = { code?: string; value?: string };
+
+type NaverIntegration = {
+  totalInfos?: NaverTotalInfo[];
+};
+
+type FinnhubProfile = {
+  marketCapitalization?: number | string;
+};
+
+const CACHE_PREFIX = "stock-compare:v10:";
 const CACHE_TTL_MS = 120_000;
 
 let pendingFetch: Promise<{ quotes: QuoteRow[]; krwPerUsd: number }> | null =
@@ -68,7 +93,28 @@ function readCache(
       data: { quotes: QuoteRow[]; krwPerUsd: number };
     };
     if (Date.now() - parsed.t > CACHE_TTL_MS) return null;
-    return parsed.data;
+    const data = parsed.data;
+    if (
+      !Array.isArray(data.quotes) ||
+      data.quotes.some(
+        (q) => !(q && typeof q === "object" && "marketCapText" in q),
+      )
+    ) {
+      return null;
+    }
+    if (
+      data.quotes.some(
+        (q) =>
+          q &&
+          typeof q === "object" &&
+          (q as QuoteRow).market === "US" &&
+          typeof (q as QuoteRow).marketCapText === "string" &&
+          (q as QuoteRow).marketCapText!.includes("조"),
+      )
+    ) {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }
@@ -103,6 +149,69 @@ function parseNaverPriceKrw(closePrice: string | undefined): number {
   return n;
 }
 
+function marketCapFromNaverIntegration(j: NaverIntegration): string | null {
+  const infos = j.totalInfos ?? [];
+  const row = infos.find((x) => x.code === "marketValue");
+  const v = row?.value?.trim();
+  return v && v.length > 0 ? v : null;
+}
+
+/**
+ * 네이버 시총: `1,730조 4,985억` → **조 정수만**(`1,730조`). 뒤의 억 구간은 표시·합산에서 제외.
+ * `조`가 없고 `억`만 있으면 1조=10,000억으로 환산한 뒤 **내림**해 정수 조만 씀.
+ */
+function naverMarketCapRawToJoText(raw: string | null): string | null {
+  if (!raw?.trim()) return null;
+  const s = raw.replaceAll(/\s+/g, " ").trim();
+  const joM = s.match(/([\d,]+)\s*조/);
+  if (joM) {
+    const joInt = Number(joM[1].replaceAll(",", ""));
+    if (Number.isFinite(joInt) && joInt > 0) {
+      return `${new Intl.NumberFormat("ko-KR", {
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0,
+      }).format(joInt)}조`;
+    }
+  }
+  const eokM = s.match(/([\d,]+)\s*억/);
+  if (eokM) {
+    const eok = Number(eokM[1].replaceAll(",", ""));
+    if (Number.isFinite(eok) && eok > 0) {
+      const joFloored = Math.floor(eok / 10_000);
+      return `${new Intl.NumberFormat("ko-KR", {
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0,
+      }).format(joFloored)}조`;
+    }
+  }
+  return s;
+}
+
+/** 미국 시총: USD만 표기 (`$3.49T` 등). Intl compact는 로캘에 따라 단위가 달라질 수 있어 고정 규칙 사용. */
+function formatMarketCapUsd(usd: number | undefined | null): string | null {
+  if (usd == null || !Number.isFinite(usd) || usd <= 0) return null;
+  const piece = (value: number, div: number, suffix: string) =>
+    `$${(value / div).toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    })}${suffix}`;
+  if (usd >= 1e12) return piece(usd, 1e12, "T");
+  if (usd >= 1e9) return piece(usd, 1e9, "B");
+  if (usd >= 1e6) return piece(usd, 1e6, "M");
+  return `$${Math.round(usd).toLocaleString("en-US")}`;
+}
+
+function finnhubMarketCapMillions(
+  raw: number | string | undefined | null,
+): number | undefined {
+  if (raw == null) return undefined;
+  const n =
+    typeof raw === "number"
+      ? raw
+      : Number(String(raw).replaceAll(",", "").trim());
+  return Number.isFinite(n) ? n : undefined;
+}
+
 async function fetchKrwPerUsd(): Promise<number> {
   const res = await fetch("/frankfurter/v1/latest?from=USD&to=KRW");
   if (!res.ok) {
@@ -114,6 +223,41 @@ async function fetchKrwPerUsd(): Promise<number> {
     throw new Error("USD/KRW 환율을 읽지 못했습니다.");
   }
   return krw;
+}
+
+async function enrichYahooMarketCapsFromQuoteSummary(
+  quotes: QuoteRow[],
+): Promise<void> {
+  const need = quotes.filter(
+    (r) => r.marketCapText == null && r.currency === "USD",
+  );
+  if (need.length === 0) return;
+
+  await Promise.all(
+    need.map(async (r) => {
+      const path = `v10/finance/quoteSummary/${encodeURIComponent(r.symbol)}`;
+      const modules = "summaryDetail";
+      const url = import.meta.env.PROD
+        ? `/api/yahoo?path=${encodeURIComponent(path)}&modules=${encodeURIComponent(modules)}`
+        : `/yahoo/${path}?modules=${encodeURIComponent(modules)}`;
+      try {
+        const res = await fetch(url);
+        if (res.status === 429 || res.status === 401) return;
+        if (!res.ok) return;
+        const data = (await res.json()) as YahooQuoteSummary;
+        if (data.quoteSummary?.error) return;
+        const raw =
+          data.quoteSummary?.result?.[0]?.summaryDetail?.marketCap?.raw;
+        const text =
+          typeof raw === "number" && Number.isFinite(raw)
+            ? formatMarketCapUsd(raw)
+            : null;
+        if (text) r.marketCapText = text;
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
 }
 
 /** 미국 시세(Yahoo)만 막혔을 때 안내 — Finnhub 키는 한국 시세와 무관합니다. */
@@ -131,23 +275,36 @@ async function fetchQuotesNaverKr(
   krYahooSymbols: string[],
   nameBySymbol: Map<string, string>,
   marketBySymbol: Map<string, Market>,
-  krwPerUsd: number,
 ): Promise<QuoteRow[]> {
   if (krYahooSymbols.length === 0) return [];
 
   const rows = await Promise.all(
     krYahooSymbols.map(async (yahooSym) => {
       const code = krCodeFromYahooSymbol(yahooSym);
-      const res = await fetch(`/naver/api/stock/${code}/basic`);
-      if (!res.ok) {
+      const [basicRes, integRes] = await Promise.all([
+        fetch(`/naver/api/stock/${code}/basic`),
+        fetch(`/naver/api/stock/${code}/integration`),
+      ]);
+      if (!basicRes.ok) {
         throw new Error(
-          `네이버 금융 시세 실패 (${res.status}) — 종목코드 ${code}`,
+          `네이버 금융 시세 실패 (${basicRes.status}) — 종목코드 ${code}`,
         );
       }
-      const j = (await res.json()) as NaverStockBasic;
+      const j = (await basicRes.json()) as NaverStockBasic;
       const price = parseNaverPriceKrw(j.closePrice);
       if (Number.isNaN(price) || price <= 0) {
         throw new Error(`네이버 금융: ${yahooSym} 가격을 읽지 못했습니다.`);
+      }
+      let marketCapText: string | null = null;
+      if (integRes.ok) {
+        try {
+          const inte = (await integRes.json()) as NaverIntegration;
+          marketCapText = naverMarketCapRawToJoText(
+            marketCapFromNaverIntegration(inte),
+          );
+        } catch {
+          marketCapText = null;
+        }
       }
       const fr = j.fluctuationsRatio?.trim();
       const changePct =
@@ -165,7 +322,7 @@ async function fetchQuotesNaverKr(
         priceNative: price,
         currency: "KRW",
         changePct,
-        priceUsd: price / krwPerUsd,
+        marketCapText,
       } satisfies QuoteRow;
     }),
   );
@@ -179,7 +336,6 @@ async function fetchYahooOnce(
   stockSymbols: string[],
   nameBySymbol: Map<string, string>,
   marketBySymbol: Map<string, Market>,
-  krwPerUsd: number,
 ): Promise<QuoteRow[]> {
   const symbolsParam = stockSymbols.join(",");
   const url = import.meta.env.PROD
@@ -208,7 +364,11 @@ async function fetchYahooOnce(
     if (price == null || Number.isNaN(price)) continue;
 
     const currency = (q.currency ?? "USD").toUpperCase();
-    const priceUsd = currency === "KRW" ? price / krwPerUsd : price;
+    const capRaw = q.marketCap ?? q.regularMarketMarketCap;
+    const marketCapText =
+      typeof capRaw === "number" && Number.isFinite(capRaw)
+        ? formatMarketCapUsd(capRaw)
+        : null;
     const changeRaw = q.regularMarketChangePercent;
     const changePct =
       changeRaw == null || Number.isNaN(changeRaw) ? null : changeRaw;
@@ -221,9 +381,11 @@ async function fetchYahooOnce(
       priceNative: price,
       currency,
       changePct,
-      priceUsd,
+      marketCapText,
     });
   }
+
+  await enrichYahooMarketCapsFromQuoteSummary(quotes);
 
   const order = new Map(stockSymbols.map((s, i) => [s, i]));
   quotes.sort((a, b) => (order.get(a.symbol) ?? 0) - (order.get(b.symbol) ?? 0));
@@ -235,15 +397,9 @@ async function fetchQuotesYahoo(
   stockSymbols: string[],
   nameBySymbol: Map<string, string>,
   marketBySymbol: Map<string, Market>,
-  krwPerUsd: number,
 ): Promise<QuoteRow[]> {
   try {
-    return await fetchYahooOnce(
-      stockSymbols,
-      nameBySymbol,
-      marketBySymbol,
-      krwPerUsd,
-    );
+    return await fetchYahooOnce(stockSymbols, nameBySymbol, marketBySymbol);
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     const retryable =
@@ -252,12 +408,7 @@ async function fetchQuotesYahoo(
       m.includes("시세 요청 실패 (401)");
     if (!retryable) throw e;
     await sleep(2200);
-    return await fetchYahooOnce(
-      stockSymbols,
-      nameBySymbol,
-      marketBySymbol,
-      krwPerUsd,
-    );
+    return await fetchYahooOnce(stockSymbols, nameBySymbol, marketBySymbol);
   }
 }
 
@@ -281,27 +432,45 @@ async function fetchQuotesFinnhubUs(
   const quotes = await Promise.all(
     usSymbols.map(async (symbol) => {
       const qs = new URLSearchParams({ symbol, token });
-      const res = await fetch(`/finnhub/api/v1/quote?${qs}`);
-      if (!res.ok) {
+      const [quoteRes, profRes] = await Promise.all([
+        fetch(`/finnhub/api/v1/quote?${qs}`),
+        fetch(`/finnhub/api/v1/stock/profile2?${qs}`),
+      ]);
+      if (!quoteRes.ok) {
         const hint =
-          res.status === 403
+          quoteRes.status === 403
             ? " 무료 플랜은 미국 시장 시세만 허용되는 경우가 많습니다."
             : "";
         throw new Error(
-          `Finnhub 시세 실패 (${res.status}). API 키·호출 한도를 확인해 주세요.${hint}`,
+          `Finnhub 시세 실패 (${quoteRes.status}). API 키·호출 한도를 확인해 주세요.${hint}`,
         );
       }
-      const data = (await res.json()) as FinnhubQuote;
+      const data = (await quoteRes.json()) as FinnhubQuote;
       const price = finnhubPrice(data);
       if (price == null) {
         throw new Error(`Finnhub: ${symbol} 가격을 읽지 못했습니다.`);
+      }
+      let marketCapText: string | null = null;
+      if (profRes.ok) {
+        try {
+          const prof = (await profRes.json()) as FinnhubProfile;
+          const millions = finnhubMarketCapMillions(prof.marketCapitalization);
+          const usd =
+            millions != null && Number.isFinite(millions) && millions > 0
+              ? millions * 1_000_000
+              : NaN;
+          marketCapText = Number.isFinite(usd)
+            ? formatMarketCapUsd(usd)
+            : null;
+        } catch {
+          marketCapText = null;
+        }
       }
       const market = marketBySymbol.get(symbol) ?? "US";
       const currency = "USD";
       const dp = data.dp;
       const changePct =
         dp == null || Number.isNaN(dp) ? null : (dp as number);
-      const priceUsd = price;
       const row: QuoteRow = {
         symbol,
         nameKo: nameBySymbol.get(symbol) ?? symbol,
@@ -310,7 +479,7 @@ async function fetchQuotesFinnhubUs(
         priceNative: price,
         currency,
         changePct,
-        priceUsd,
+        marketCapText,
       };
       return row;
     }),
@@ -359,12 +528,12 @@ export async function fetchQuotes(
 
     const [krRows, usRows] = await Promise.all([
       kr.length
-        ? fetchQuotesNaverKr(kr, nameBySymbol, marketBySymbol, krwPerUsd)
+        ? fetchQuotesNaverKr(kr, nameBySymbol, marketBySymbol)
         : Promise.resolve([] as QuoteRow[]),
       us.length
         ? token
           ? fetchQuotesFinnhubUs(us, token, nameBySymbol, marketBySymbol)
-          : fetchQuotesYahoo(us, nameBySymbol, marketBySymbol, krwPerUsd)
+          : fetchQuotesYahoo(us, nameBySymbol, marketBySymbol)
         : Promise.resolve([] as QuoteRow[]),
     ]);
 
