@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STOCKS, type Market } from "./stocks";
-import { fetchQuotes, type QuoteRow } from "./api";
+import { fetchQuotes, type QuoteRow, compareQuoteRowsByMarketCapDesc } from "./api";
 import { buildMarketSummaryBullets } from "./marketSummary";
 import "./App.css";
 
+/** 수동 새로고침 연타 시 무료 API 한도 방지(초) */
+const MANUAL_REFRESH_COOLDOWN_SEC = 60;
+
 function formatMoney(n: number, currency: string, maxFrac = 2): string {
+  if (!Number.isFinite(n)) return "—";
   try {
     return new Intl.NumberFormat("ko-KR", {
       style: "currency",
@@ -52,11 +56,7 @@ function Panel({
         <tbody>
           {rows.map((r) => (
             <tr key={r.symbol}>
-              <td>
-                <div>{r.nameKo}</div>
-                <div className="sym">{r.shortName}</div>
-                <div className="sym">{r.symbol}</div>
-              </td>
+              <td>{r.nameKo}</td>
               <td className="num">{formatMoney(r.priceNative, r.currency)}</td>
               <td
                 className={`num ${
@@ -82,8 +82,9 @@ export default function App() {
   const [rows, setRows] = useState<QuoteRow[]>([]);
   const [krwPerUsd, setKrwPerUsd] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [userNotice, setUserNotice] = useState<string | null>(null);
+  const [refreshCooldownSec, setRefreshCooldownSec] = useState(0);
 
   const nameBySymbol = useMemo(
     () => new Map(STOCKS.map((s) => [s.symbol, s.nameKo])),
@@ -96,32 +97,57 @@ export default function App() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setUserNotice(null);
     try {
       const symbols = STOCKS.map((s) => s.symbol);
-      const { quotes, krwPerUsd: rate } = await fetchQuotes(
+      const { quotes, krwPerUsd: rate, userNotice: notice } = await fetchQuotes(
         symbols,
         nameBySymbol,
         marketBySymbol,
       );
       setRows(quotes);
       setKrwPerUsd(rate);
-      setUpdatedAt(new Date());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "알 수 없는 오류");
-      setRows([]);
-      setKrwPerUsd(null);
+      setUserNotice(notice);
+      if (quotes.some((r) => Number.isFinite(r.priceNative))) {
+        setUpdatedAt(new Date());
+      }
     } finally {
       setLoading(false);
     }
   }, [nameBySymbol, marketBySymbol]);
 
   useEffect(() => {
+    if (refreshCooldownSec <= 0) return;
+    const id = window.setTimeout(() => {
+      setRefreshCooldownSec((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [refreshCooldownSec]);
+
+  const handleManualRefresh = useCallback(() => {
+    if (loading || refreshCooldownSec > 0) return;
+    setRefreshCooldownSec(MANUAL_REFRESH_COOLDOWN_SEC);
+    void load();
+  }, [loading, refreshCooldownSec, load]);
+
+  useEffect(() => {
     void load();
   }, [load]);
 
-  const krRows = rows.filter((r) => r.market === "KR");
-  const usRows = rows.filter((r) => r.market === "US");
+  const krRows = useMemo(
+    () =>
+      [...rows.filter((r) => r.market === "KR")].sort(
+        compareQuoteRowsByMarketCapDesc,
+      ),
+    [rows],
+  );
+  const usRows = useMemo(
+    () =>
+      [...rows.filter((r) => r.market === "US")].sort(
+        compareQuoteRowsByMarketCapDesc,
+      ),
+    [rows],
+  );
 
   /** 당일 등락률(%) 기준 상승분만 — 상위 3 */
   const gainRankTop3 = useMemo(() => {
@@ -163,17 +189,12 @@ export default function App() {
           시장 요약입니다. 투자 권유나 공식 시황 자료가 아닙니다.
         </p>
 
-        {loading && rows.length === 0 && !error ? (
+        {loading && rows.length === 0 ? (
           <ul className="summary-bullets summary-bullets--skeleton" aria-busy="true">
             <li className="skel">한국 시장 요약을 준비하는 중…</li>
             <li className="skel">미국 시장 요약을 준비하는 중…</li>
             <li className="skel">환율 영향 설명을 준비하는 중…</li>
           </ul>
-        ) : error ? (
-          <p className="summary-error">
-            시세를 불러오지 못해 요약을 표시할 수 없습니다. 위쪽 오류를 확인한 뒤
-            새로고침해 주세요.
-          </p>
         ) : rows.length > 0 ? (
           <ul className="summary-bullets">
             <li>
@@ -203,13 +224,22 @@ export default function App() {
         </p>
       </header>
 
+      {userNotice ? (
+        <p className="notice-banner" role="status">
+          {userNotice}
+        </p>
+      ) : null}
+
       <div className="toolbar">
         <button
           type="button"
           className="btn"
-          onClick={() => window.location.reload()}
+          disabled={loading || refreshCooldownSec > 0}
+          onClick={handleManualRefresh}
         >
-          새로고침
+          {refreshCooldownSec > 0
+            ? `다음 갱신 ${refreshCooldownSec}초 후`
+            : "새로고침"}
         </button>
         {updatedAt && (
           <span className="meta">
@@ -224,9 +254,7 @@ export default function App() {
         )}
       </div>
 
-      {error && <div className="error">{error}</div>}
-
-      {loading && rows.length === 0 && !error && (
+      {loading && rows.length === 0 && (
         <p className="skel">시세를 불러오는 중입니다…</p>
       )}
 
@@ -257,9 +285,6 @@ export default function App() {
                         <span className="rank-market">
                           {r.market === "KR" ? "한국" : "미국"}
                         </span>
-                      </div>
-                      <div className="rank-meta sym">
-                        {r.symbol} · {r.shortName}
                       </div>
                     </div>
                     <div className="rank-tail">

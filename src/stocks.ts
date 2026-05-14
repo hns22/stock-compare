@@ -13,9 +13,9 @@ export const STOCKS: StockDef[] = [
   { symbol: "005380.KS", nameKo: "현대차", market: "KR" },
   { symbol: "373220.KS", nameKo: "LG에너지솔루션", market: "KR" },
   { symbol: "035420.KS", nameKo: "NAVER", market: "KR" },
+  { symbol: "NVDA", nameKo: "NVIDIA", market: "US" },
+  { symbol: "GOOGL", nameKo: "Alphabet (Class A)", market: "US" },
   { symbol: "AAPL", nameKo: "Apple", market: "US" },
   { symbol: "MSFT", nameKo: "Microsoft", market: "US" },
   { symbol: "AMZN", nameKo: "Amazon", market: "US" },
-  { symbol: "GOOGL", nameKo: "Alphabet (Class A)", market: "US" },
-  { symbol: "NVDA", nameKo: "NVIDIA", market: "US" },
 ];
