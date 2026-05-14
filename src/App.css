@@ -105,6 +105,7 @@
 
 .summary-body {
   color: var(--text);
+  white-space: pre-line;
 }
 
 .summary-error {
