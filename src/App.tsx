@@ -21,6 +21,15 @@ function formatMoney(n: number, currency: string, maxFrac = 2): string {
   }
 }
 
+/** 미국 달러 가격: `US$` 대신 `$` + 숫자만 */
+function formatUsdPrice(n: number, maxFrac = 2): string {
+  if (!Number.isFinite(n)) return "—";
+  return `$${new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: maxFrac,
+    minimumFractionDigits: 0,
+  }).format(n)}`;
+}
+
 function formatPct(n: number | null): string {
   if (n == null || Number.isNaN(n)) return "—";
   const sign = n > 0 ? "+" : "";
@@ -46,7 +55,9 @@ function Panel({
         <thead>
           <tr>
             <th>종목</th>
-            <th className="num">현재가</th>
+            <th className="num">
+              {market === "KR" ? "현재가(KRW)" : "현재가(USD)"}
+            </th>
             <th className="num">등락</th>
             <th className="num">
               {market === "KR" ? "시가총액(KRW)" : "시가총액(USD)"}
@@ -57,7 +68,11 @@ function Panel({
           {rows.map((r) => (
             <tr key={r.symbol}>
               <td>{r.nameKo}</td>
-              <td className="num">{formatMoney(r.priceNative, r.currency)}</td>
+              <td className="num">
+                {r.currency === "USD"
+                  ? formatUsdPrice(r.priceNative)
+                  : formatMoney(r.priceNative, r.currency)}
+              </td>
               <td
                 className={`num ${
                   r.changePct == null
@@ -292,7 +307,9 @@ export default function App() {
                         {formatPct(r.changePct)}
                       </span>
                       <span className="rank-price num">
-                        {formatMoney(r.priceNative, r.currency)}
+                        {r.currency === "USD"
+                          ? formatUsdPrice(r.priceNative)
+                          : formatMoney(r.priceNative, r.currency)}
                       </span>
                     </div>
                   </li>
