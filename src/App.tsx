@@ -7,6 +7,12 @@ import "./App.css";
 /** 수동 새로고침 연타 시 무료 API 한도 방지(초) */
 const MANUAL_REFRESH_COOLDOWN_SEC = 30;
 
+/** 시장 요약·툴바 갱신 시각 공통 (예: 2026. 5. 15. 오전 3:02) */
+const KO_DATETIME_MEDIUM_SHORT: Intl.DateTimeFormatOptions = {
+  dateStyle: "medium",
+  timeStyle: "short",
+};
+
 function formatMoney(n: number, currency: string, maxFrac = 2): string {
   if (!Number.isFinite(n)) return "—";
   try {
@@ -58,7 +64,7 @@ function Panel({
             <th className="num">
               {market === "KR" ? "현재가(KRW)" : "현재가(USD)"}
             </th>
-            <th className="num">등락</th>
+            <th className="num">등락(전일대비 %)</th>
             <th className="num">
               {market === "KR" ? "시가총액(KRW)" : "시가총액(USD)"}
             </th>
@@ -182,6 +188,17 @@ export default function App() {
 
   return (
     <div className="app">
+      <header className="header">
+        <h1>한·미 대표 기업 주가 비교</h1>
+        <p>
+          한국과 미국의 주요 10개 기업 시세를 한 화면에서 비교할 수 있는
+          대시보드입니다.
+          <br />
+          데이터 출처: 한국 종목 – 네이버 금융, 미국 종목 – Finnhub · Yahoo Finance,
+          환율 – Frankfurter API
+        </p>
+      </header>
+
       <section className="summary-card" aria-labelledby="summary-heading">
         <div className="summary-card-top">
           <h2 id="summary-heading" className="summary-title">
@@ -189,13 +206,8 @@ export default function App() {
           </h2>
           {updatedAt && rows.length > 0 && (
             <span className="summary-asof">
-              기준{" "}
-              {updatedAt.toLocaleString("ko-KR", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              기준:{" "}
+              {updatedAt.toLocaleString("ko-KR", KO_DATETIME_MEDIUM_SHORT)}
             </span>
           )}
         </div>
@@ -228,17 +240,6 @@ export default function App() {
         ) : null}
       </section>
 
-      <header className="header">
-        <h1>한·미 대표 기업 주가 비교</h1>
-        <p>
-          한국과 미국의 주요 10개 기업 시세를 한 화면에서 비교할 수 있는
-          대시보드입니다.
-          <br />
-          데이터 출처: 한국 종목 – 네이버 금융, 미국 종목 – Finnhub · Yahoo Finance,
-          환율 – Frankfurter API
-        </p>
-      </header>
-
       {userNotice ? (
         <p className="notice-banner" role="status">
           {userNotice}
@@ -259,10 +260,7 @@ export default function App() {
         {updatedAt && (
           <span className="meta">
             마지막 갱신:{" "}
-            {updatedAt.toLocaleString("ko-KR", {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })}
+            {updatedAt.toLocaleString("ko-KR", KO_DATETIME_MEDIUM_SHORT)}
             {krwPerUsd != null &&
               ` · USD/KRW 약 ${krwPerUsd.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`}
           </span>
@@ -281,9 +279,13 @@ export default function App() {
           </div>
 
           <section className="rank-section" aria-labelledby="rank-heading">
-            <h2 id="rank-heading">오늘의 상승률 TOP 3</h2>
+            <div className="rank-head">
+              <span className="rank-head-badge" aria-hidden="true" />
+              <h2 id="rank-heading">오늘의 상승률 TOP 3</h2>
+            </div>
             <p className="rank-hint">
-              위 10개 종목 중 당일 상승(+)한 종목만 등락률 높은 순으로 상위 3개 종목을 보여줍니다.
+              위 10개 종목 중 당일 상승(+)인 종목만 등락률 높은 순으로 상위 3개를 보여줍니다. 한·미
+              장 운영 시각 차이에 따라 등락률 의미가 달라질 수 있습니다.
             </p>
             {gainRankTop3.length === 0 ? (
               <p className="rank-empty">
@@ -292,25 +294,47 @@ export default function App() {
             ) : (
               <ol className="rank-list">
                 {gainRankTop3.map((r, i) => (
-                  <li key={r.symbol} className="rank-item">
-                    <span className={`rank-medal rank-${i + 1}`}>{i + 1}</span>
-                    <div className="rank-body">
-                      <div className="rank-title">
-                        <strong>{r.nameKo}</strong>
-                        <span className="rank-market">
-                          {r.market === "KR" ? "한국" : "미국"}
-                        </span>
-                      </div>
+                  <li
+                    key={r.symbol}
+                    className="rank-item"
+                    aria-label={`순위 ${i + 1} ${r.nameKo}`}
+                  >
+                    <div className="rank-rail" aria-hidden="true">
+                      <span className="rank-accent" />
+                      <span className="rank-index">{i + 1}</span>
                     </div>
-                    <div className="rank-tail">
-                      <span className="rank-pct change-up">
-                        {formatPct(r.changePct)}
-                      </span>
-                      <span className="rank-price num">
-                        {r.currency === "USD"
-                          ? formatUsdPrice(r.priceNative)
-                          : formatMoney(r.priceNative, r.currency)}
-                      </span>
+                    <div className="rank-stack">
+                      <div className="rank-row-top">
+                        <div className="rank-title">
+                          <strong>{r.nameKo}</strong>
+                          <span className="rank-market">
+                            {r.market === "KR" ? "한국" : "미국"}
+                          </span>
+                        </div>
+                        <div className="rank-tail">
+                          <span className="rank-pct change-up">
+                            {formatPct(r.changePct)}
+                          </span>
+                          <span className="rank-price num">
+                            {r.currency === "USD"
+                              ? formatUsdPrice(r.priceNative)
+                              : formatMoney(r.priceNative, r.currency)}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="rank-meta-line">
+                        <span className="rank-meta-sym">{r.symbol}</span>
+                        <span className="rank-meta-sep" aria-hidden="true">
+                          {" "}
+                          ·{" "}
+                        </span>
+                        <span>
+                          시총{" "}
+                          <span className="rank-meta-cap">
+                            {r.marketCapText ?? "—"}
+                          </span>
+                        </span>
+                      </p>
                     </div>
                   </li>
                 ))}
