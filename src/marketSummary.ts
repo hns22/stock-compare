@@ -9,6 +9,43 @@ export type MarketSummaryBullets = {
   fx: string;
 };
 
+/** USD/KRW(원/달러) 전일 대비 변동률(%) 기준 — Frankfurter 직전 일자 대비 */
+const FX_FLAT_ABS_PCT = 0.3;
+
+const messages = {
+  koreaNoData:
+    "이 화면에 표시된 국내 종목의 등락 데이터가 부족해 당일 흐름을 판단하기 어렵습니다.",
+  koreaSemiconductorStrong:
+    "삼성전자와 SK하이닉스가 상대적으로 강세를 보이며, 반도체 중심의 상승 흐름이 나타납니다.",
+  koreaStrong:
+    "국내 대표 대형주 전반에서 상승 흐름이 우세합니다.",
+  koreaWeak:
+    "국내 대표 대형주 전반에 조정 압력이 나타나고 있습니다.",
+  koreaMixed:
+    "종목별 흐름이 엇갈리며, 전반적으로 혼조세를 보입니다.",
+
+  usNoData:
+    "이 화면에 표시된 미국 종목의 등락 데이터가 부족해 당일 흐름을 판단하기 어렵습니다.",
+  usTechStrong:
+    "AI·빅테크 관련 대형주가 상승을 주도하며 우호적인 흐름을 보입니다.",
+  usTechWeak:
+    "빅테크 중심으로 하락 압력이 커지며, 미국 대표 종목 평균 수익률이 부진합니다.",
+  usMixed:
+    "AI·빅테크 관련 종목은 보합권에 머물거나 종목별 차별화가 나타납니다.",
+
+  fxNoData:
+    "USD/KRW 환율 정보를 불러오지 못했습니다. 새로고침 후 다시 확인해 주세요.",
+
+  fxUp: (r: number) =>
+    `기준 환율은 USD/KRW 약 ${r.toLocaleString("ko-KR")}원으로 오름세(달러 강세)입니다. 미국 주식 투자 시 환차익이 더해져 원화 환산 수익률이 한층 더 높아지는 효과를 기대할 수 있습니다.`,
+
+  fxDown: (r: number) =>
+    `기준 환율은 USD/KRW 약 ${r.toLocaleString("ko-KR")}원으로 내림세(원화 강세)입니다. 미국 주식에서 달러로 수익이 나더라도, 원화로 환산할 때 환율 하락분만큼 수익이 일부 줄어들 수 있으니 참고해 주세요.`,
+
+  fxFlat: (r: number) =>
+    `기준 환율은 USD/KRW 약 ${r.toLocaleString("ko-KR")}원으로 큰 변동 없이 안정적인 흐름입니다. 현재는 환율 효과보다는 개별 종목의 주가 등락이 미국 주식 원화 수익률에 더 직접적인 영향을 주고 있습니다.`,
+} as const;
+
 const SEMI_KR = new Set(["005930.KS", "000660.KS"]);
 
 function pct(r: QuoteRow): number | null {
@@ -31,6 +68,7 @@ export function buildMarketSummaryBullets(
   kr: QuoteRow[],
   us: QuoteRow[],
   krwPerUsd: number | null,
+  krwChangePct: number | null,
 ): MarketSummaryBullets {
   const krAvg = meanOf(kr);
   const semiAvg = meanOf(kr.filter((r) => SEMI_KR.has(r.symbol)));
@@ -38,44 +76,47 @@ export function buildMarketSummaryBullets(
 
   let korea: string;
   if (krAvg === null) {
-    korea =
-      "이 화면에 올라온 국내 종목의 등락률이 충분하지 않아 톤을 판단하기 어렵습니다.";
+    korea = messages.koreaNoData;
   } else if (
     semiAvg !== null &&
     semiAvg > krAvg + 0.12 &&
     semiAvg > 0.03
   ) {
-    korea =
-      "반도체(삼성전자·SK하이닉스)가 상대적으로 강한 반도체 중심 강세 흐름으로 읽힙니다.";
+    korea = messages.koreaSemiconductorStrong;
   } else if (krAvg >= 0.35) {
-    korea = "국내 대형주 상승 분위기가 두드러집니다.";
+    korea = messages.koreaStrong;
   } else if (krAvg <= -0.35) {
-    korea = "국내 대형주 조정·약세 압력이 상대적으로 큽니다.";
+    korea = messages.koreaWeak;
   } else {
-    korea = "혼조 속에서 업종·종목별로 등락이 엇갈리는 모습입니다.";
+    korea = messages.koreaMixed;
   }
 
   let usLine: string;
   if (usAvg === null) {
-    usLine =
-      "미국 쪽 샘플 종목의 등락률이 충분하지 않아 톤을 판단하기 어렵습니다.";
+    usLine = messages.usNoData;
   } else if (usAvg >= 0.35) {
-    usLine =
-      "AI·빅테크 중심 상승 국면으로 보이며, 대형 기술주 톤이 좋습니다.";
+    usLine = messages.usTechStrong;
   } else if (usAvg <= -0.35) {
-    usLine = "빅테크 약세로 샘플 종목 평균 하락 폭이 큽니다.";
+    usLine = messages.usTechWeak;
   } else {
-    usLine =
-      "AI·빅테크 계열은 보합에 가깝거나 종목별로 희비가 갈립니다.";
+    usLine = messages.usMixed;
   }
 
   let fx: string;
   if (krwPerUsd == null || krwPerUsd <= 0) {
-    fx =
-      "USD/KRW 기준을 불러오지 못했습니다. 새로고침 후 원화 환산 관련 해설을 확인할 수 있습니다.";
+    fx = messages.fxNoData;
   } else {
     const r = Math.round(krwPerUsd);
-    fx = `기준 USD/KRW 약 ${r.toLocaleString("ko-KR")}원 수준입니다. 원화 약세(달러 강세)가 이어지면 같은 달러 수익이라도 원화로 환산한 미국 주식 수익률은 커지기 쉽고, 원화 강세이면 원화 환산 수익은 상대적으로 줄어드는 방향입니다.`;
+    const ch = krwChangePct;
+    if (ch == null || Number.isNaN(ch)) {
+      fx = messages.fxFlat(r);
+    } else if (ch > FX_FLAT_ABS_PCT) {
+      fx = messages.fxUp(r);
+    } else if (ch < -FX_FLAT_ABS_PCT) {
+      fx = messages.fxDown(r);
+    } else {
+      fx = messages.fxFlat(r);
+    }
   }
 
   return { korea, us: usLine, fx };

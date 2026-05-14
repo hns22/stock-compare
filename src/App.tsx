@@ -102,6 +102,7 @@ function Panel({
 export default function App() {
   const [rows, setRows] = useState<QuoteRow[]>([]);
   const [krwPerUsd, setKrwPerUsd] = useState<number | null>(null);
+  const [krwChangePct, setKrwChangePct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [userNotice, setUserNotice] = useState<string | null>(null);
@@ -121,13 +122,15 @@ export default function App() {
     setUserNotice(null);
     try {
       const symbols = STOCKS.map((s) => s.symbol);
-      const { quotes, krwPerUsd: rate, userNotice: notice } = await fetchQuotes(
-        symbols,
-        nameBySymbol,
-        marketBySymbol,
-      );
+      const {
+        quotes,
+        krwPerUsd: rate,
+        krwChangePct: fxChg,
+        userNotice: notice,
+      } = await fetchQuotes(symbols, nameBySymbol, marketBySymbol);
       setRows(quotes);
       setKrwPerUsd(rate);
+      setKrwChangePct(fxChg);
       setUserNotice(notice);
       if (quotes.some((r) => Number.isFinite(r.priceNative))) {
         setUpdatedAt(new Date());
@@ -182,8 +185,8 @@ export default function App() {
   }, [rows]);
 
   const summaryBullets = useMemo(
-    () => buildMarketSummaryBullets(krRows, usRows, krwPerUsd),
-    [krRows, usRows, krwPerUsd],
+    () => buildMarketSummaryBullets(krRows, usRows, krwPerUsd, krwChangePct),
+    [krRows, usRows, krwPerUsd, krwChangePct],
   );
 
   return (

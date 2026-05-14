@@ -18,6 +18,8 @@ export type QuoteRow = {
 export type FetchQuotesResult = {
   quotes: QuoteRow[];
   krwPerUsd: number;
+  /** 직전 Frankfurter 영업일 대비 USD→KRW 환율 변동률(%). 산출 불가 시 null */
+  krwChangePct: number | null;
   /** null이면 정상·캐시 적중 등으로 별도 안내 없음 */
   userNotice: string | null;
 };
@@ -79,7 +81,7 @@ type FinnhubProfile = {
   marketCapitalization?: number | string;
 };
 
-const CACHE_PREFIX = "stock-compare:v12:";
+const CACHE_PREFIX = "stock-compare:v13:";
 const CACHE_TTL_MS = 120_000;
 /** 환율 API 실패 시 요약·표시용 (고정값, 실시간 아님) */
 const FALLBACK_KRW_PER_USD = 1_430;
@@ -93,15 +95,21 @@ function cacheKey(
   return `${CACHE_PREFIX}${source}:${symbols.join(",")}`;
 }
 
+type QuotesCachePayload = {
+  quotes: QuoteRow[];
+  krwPerUsd: number;
+  krwChangePct: number | null;
+};
+
 function readCache(
   key: string,
-): { quotes: QuoteRow[]; krwPerUsd: number } | null {
+): QuotesCachePayload | null {
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       t: number;
-      data: { quotes: QuoteRow[]; krwPerUsd: number };
+      data: QuotesCachePayload;
     };
     if (Date.now() - parsed.t > CACHE_TTL_MS) return null;
     const data = parsed.data;
@@ -127,7 +135,14 @@ function readCache(
     ) {
       return null;
     }
-    return data;
+    return {
+      quotes: data.quotes,
+      krwPerUsd: data.krwPerUsd,
+      krwChangePct:
+        typeof data.krwChangePct === "number" && Number.isFinite(data.krwChangePct)
+          ? data.krwChangePct
+          : null,
+    };
   } catch {
     return null;
   }
@@ -136,13 +151,13 @@ function readCache(
 /** TTL 무시: 네트워크 실패 시 마지막으로 성공한 시세만 표시할 때 사용 */
 function readCacheStale(
   key: string,
-): { quotes: QuoteRow[]; krwPerUsd: number } | null {
+): QuotesCachePayload | null {
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       t: number;
-      data: { quotes: QuoteRow[]; krwPerUsd: number };
+      data: QuotesCachePayload;
     };
     const data = parsed.data;
     if (
@@ -167,7 +182,14 @@ function readCacheStale(
     ) {
       return null;
     }
-    return data;
+    return {
+      quotes: data.quotes,
+      krwPerUsd: data.krwPerUsd,
+      krwChangePct:
+        typeof data.krwChangePct === "number" && Number.isFinite(data.krwChangePct)
+          ? data.krwChangePct
+          : null,
+    };
   } catch {
     return null;
   }
@@ -191,10 +213,7 @@ function buildPlaceholderQuoteRows(
   }));
 }
 
-function writeCache(
-  key: string,
-  data: { quotes: QuoteRow[]; krwPerUsd: number },
-): void {
+function writeCache(key: string, data: QuotesCachePayload): void {
   try {
     sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), data }));
   } catch {
@@ -321,17 +340,45 @@ function finnhubMarketCapMillions(
   return Number.isFinite(n) ? n : undefined;
 }
 
-async function fetchKrwPerUsd(): Promise<number> {
-  const res = await fetch("/frankfurter/v1/latest?from=USD&to=KRW");
-  if (!res.ok) {
-    throw new Error(`환율 요청 실패 (${res.status})`);
+/**
+ * 최신 USD→KRW 및 직전 영업일(Frankfurter 제공 일자) 대비 변동률(%).
+ * KRW/USD 수치가 오르면 달러 강세(원화 약세) 방향.
+ */
+async function fetchKrwPerUsdWithChange(): Promise<{
+  krwPerUsd: number;
+  krwChangePct: number | null;
+}> {
+  const latestRes = await fetch("/frankfurter/v1/latest?from=USD&to=KRW");
+  if (!latestRes.ok) {
+    throw new Error(`환율 요청 실패 (${latestRes.status})`);
   }
-  const data = (await res.json()) as FrankfurterLatest;
-  const krw = data.rates?.KRW;
-  if (!krw || krw <= 0) {
+  const data = (await latestRes.json()) as FrankfurterLatest;
+  const latest = data.rates?.KRW;
+  if (!latest || latest <= 0) {
     throw new Error("USD/KRW 환율을 읽지 못했습니다.");
   }
-  return krw;
+
+  let krwChangePct: number | null = null;
+  for (let i = 1; i <= 7; i++) {
+    const dt = new Date();
+    dt.setUTCDate(dt.getUTCDate() - i);
+    const ds = dt.toISOString().slice(0, 10);
+    const pastRes = await fetch(`/frankfurter/v1/${ds}?from=USD&to=KRW`);
+    if (!pastRes.ok) continue;
+    let pastData: FrankfurterLatest;
+    try {
+      pastData = (await pastRes.json()) as FrankfurterLatest;
+    } catch {
+      continue;
+    }
+    const prev = pastData.rates?.KRW;
+    if (prev != null && prev > 0) {
+      krwChangePct = ((latest - prev) / prev) * 100;
+      break;
+    }
+  }
+
+  return { krwPerUsd: latest, krwChangePct };
 }
 
 async function enrichYahooMarketCapsFromQuoteSummary(
@@ -688,15 +735,23 @@ export async function fetchQuotes(
   const ck = cacheKey(stockSymbols, source);
   const hit = readCache(ck);
   if (hit) {
-    return { quotes: hit.quotes, krwPerUsd: hit.krwPerUsd, userNotice: null };
+    return {
+      quotes: hit.quotes,
+      krwPerUsd: hit.krwPerUsd,
+      krwChangePct: hit.krwChangePct,
+      userNotice: null,
+    };
   }
 
   if (pendingFetch) return pendingFetch;
 
   pendingFetch = (async () => {
     let krwPerUsd = FALLBACK_KRW_PER_USD;
+    let krwChangePct: number | null = null;
     try {
-      krwPerUsd = await fetchKrwPerUsd();
+      const fx = await fetchKrwPerUsdWithChange();
+      krwPerUsd = fx.krwPerUsd;
+      krwChangePct = fx.krwChangePct;
     } catch {
       /* Frankfurter 실패 시에도 화면은 유지 */
     }
@@ -722,11 +777,16 @@ export async function fetchQuotes(
         throw new Error("empty");
       }
 
-      const payload = { quotes, krwPerUsd };
+      const payload: QuotesCachePayload = {
+        quotes,
+        krwPerUsd,
+        krwChangePct,
+      };
       writeCache(ck, payload);
       return {
         quotes: payload.quotes,
         krwPerUsd: payload.krwPerUsd,
+        krwChangePct: payload.krwChangePct,
         userNotice: null,
       };
     } catch (e) {
@@ -739,6 +799,7 @@ export async function fetchQuotes(
             Number.isFinite(stale.krwPerUsd) && stale.krwPerUsd > 0
               ? stale.krwPerUsd
               : krwPerUsd,
+          krwChangePct: stale.krwChangePct,
           userNotice: userNoticeWhenNoLiveData(rate, true),
         };
       }
@@ -749,6 +810,7 @@ export async function fetchQuotes(
           marketBySymbol,
         ),
         krwPerUsd,
+        krwChangePct,
         userNotice: userNoticeWhenNoLiveData(rate, false),
       };
     }
@@ -760,6 +822,7 @@ export async function fetchQuotes(
         marketBySymbol,
       ),
       krwPerUsd: FALLBACK_KRW_PER_USD,
+      krwChangePct: null,
       userNotice: userNoticeWhenNoLiveData(false, false),
     }))
     .finally(() => {
