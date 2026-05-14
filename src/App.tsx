@@ -157,9 +157,8 @@ export default function App() {
           )}
         </div>
         <p className="summary-lede">
-          이 페이지에 나오는 <strong>한·미 10개 종목</strong>의 당일 등락과{" "}
-          <strong>USD/KRW</strong>만으로 만든 짧은 스냅샷입니다. 투자 권유나 공식
-          시황이 아닙니다.
+          한·미 10개 종목의 당일 등락률과 USD/KRW 환율을 기준으로 작성한 간단한
+          시장 요약입니다. 투자 권유나 공식 시황 자료가 아닙니다.
         </p>
 
         {loading && rows.length === 0 && !error ? (
@@ -194,13 +193,14 @@ export default function App() {
       <header className="header">
         <h1>한·미 대표 기업 주가 비교</h1>
         <p>
-          한국 5곳과 미국 5곳의 대표 종목 시세를 한 화면에서 보여 줍니다. 원화
-          종목은 ECB 기준 USD/KRW(Frankfurter)로 달러 환산가를 함께 표시합니다.{" "}
-          아래는 이 10개 종목 중 <strong>당일 등락률이 플러스인 종목</strong>만
-          모아 상승률 상위 3곳을 보여 줍니다.{" "}
-          <strong>한국</strong>은 네이버 금융 API,{" "}
-          <strong>미국</strong>은 Finnhub 키가 있으면 Finnhub, 없으면 Yahoo
-          Finance입니다.
+          한국과 미국의 주요 10개 대표 종목 시세를 한 화면에서 비교할 수 있는
+          대시보드입니다.
+          <br />
+          원화로 표시되는 한국 종목은 USD/KRW 환율을 적용해 달러 환산가를 함께
+          제공합니다.
+          <br />
+          데이터 출처: 한국 종목 – 네이버 금융, 미국 종목 – Finnhub · Yahoo Finance,
+          환율 – Frankfurter API
         </p>
       </header>
 
@@ -208,10 +208,9 @@ export default function App() {
         <button
           type="button"
           className="btn"
-          onClick={() => void load()}
-          disabled={loading}
+          onClick={() => window.location.reload()}
         >
-          {loading ? "불러오는 중…" : "새로고침"}
+          새로고침
         </button>
         {updatedAt && (
           <span className="meta">
@@ -281,7 +280,9 @@ export default function App() {
         </>
       )}
 
-      <p className="footnote footnote--credit">made by HNS</p>
+      <p className="footnote footnote--credit">
+        Made by HNS · Built with Cursor
+      </p>
     </div>
   );
 }

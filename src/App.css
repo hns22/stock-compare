@@ -94,19 +94,19 @@
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #a8b4cc;
+  color: #334155;
 }
 
 .summary-bullets > li:nth-child(1) .summary-topic {
-  color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .summary-bullets > li:nth-child(2) .summary-topic {
-  color: #86efac;
+  color: #15803d;
 }
 
 .summary-bullets > li:nth-child(3) .summary-topic {
-  color: #fcd34d;
+  color: #b45309;
 }
 
 .summary-body {
@@ -268,12 +268,13 @@ tr:last-child td {
   text-align: right;
 }
 
+/* 한국 시장 관례: 상승(+) 빨강, 하락(-) 파랑 */
 .change-up {
-  color: var(--success);
+  color: #c62828;
 }
 
 .change-down {
-  color: var(--danger);
+  color: #1565c0;
 }
 
 .rank-section {
