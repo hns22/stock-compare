@@ -15,7 +15,7 @@
     var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) + 4px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
 }
 
 .summary-card-top {
@@ -48,7 +48,7 @@
 }
 
 .summary-lede strong {
-  color: #c8d0e0;
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -69,7 +69,7 @@
   font-size: 0.9rem;
   line-height: 1.55;
   padding: 0.65rem 0.75rem;
-  background: rgba(11, 13, 18, 0.45);
+  background: rgba(59, 130, 246, 0.06);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -116,7 +116,7 @@
 .summary-error {
   margin: 0;
   font-size: 0.88rem;
-  color: #fecaca;
+  color: #b91c1c;
   line-height: 1.5;
 }
 
@@ -161,8 +161,8 @@
 }
 
 .btn:hover:not(:disabled) {
-  border-color: #2d3545;
-  background: #161a22;
+  border-color: #cbd5e1;
+  background: #eef2f7;
 }
 
 .btn:disabled {
@@ -177,9 +177,9 @@
 }
 
 .error {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  color: #fecaca;
+  background: rgba(248, 113, 113, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #991b1b;
   padding: 0.85rem 1rem;
   border-radius: var(--radius);
   font-size: 0.9rem;
@@ -318,7 +318,7 @@ tr:last-child td {
   gap: 0.65rem 0.85rem;
   align-items: center;
   padding: 0.75rem 0.85rem;
-  background: #0d1016;
+  background: #f1f5f9;
   border: 1px solid var(--border);
   border-radius: 10px;
 }
