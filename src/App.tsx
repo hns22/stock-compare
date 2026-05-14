@@ -190,26 +190,42 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1>한·미 대표 기업 주가 비교</h1>
-        <p>
+        <p className="header-lede">
           한국과 미국의 주요 10개 기업 시세를 한 화면에서 비교할 수 있는
           대시보드입니다.
-          <br />
+        </p>
+        <p className="header-source">
           데이터 출처: 한국 종목 – 네이버 금융, 미국 종목 – Finnhub · Yahoo Finance,
           환율 – Frankfurter API
         </p>
       </header>
+
+      <div className="toolbar">
+        <button
+          type="button"
+          className="btn"
+          disabled={loading || refreshCooldownSec > 0}
+          onClick={handleManualRefresh}
+        >
+          {refreshCooldownSec > 0
+            ? `다음 갱신 ${refreshCooldownSec}초 후`
+            : "새로고침"}
+        </button>
+        {updatedAt && (
+          <span className="meta">
+            마지막 갱신:{" "}
+            {updatedAt.toLocaleString("ko-KR", KO_DATETIME_MEDIUM_SHORT)}
+            {krwPerUsd != null &&
+              ` · USD/KRW 약 ${krwPerUsd.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`}
+          </span>
+        )}
+      </div>
 
       <section className="summary-card" aria-labelledby="summary-heading">
         <div className="summary-card-top">
           <h2 id="summary-heading" className="summary-title">
             오늘의 시장 요약
           </h2>
-          {updatedAt && rows.length > 0 && (
-            <span className="summary-asof">
-              기준:{" "}
-              {updatedAt.toLocaleString("ko-KR", KO_DATETIME_MEDIUM_SHORT)}
-            </span>
-          )}
         </div>
         <p className="summary-lede">
           한·미 10개 종목의 당일 등락률과 USD/KRW 환율을 기준으로 작성한 간단한
@@ -246,27 +262,6 @@ export default function App() {
         </p>
       ) : null}
 
-      <div className="toolbar">
-        <button
-          type="button"
-          className="btn"
-          disabled={loading || refreshCooldownSec > 0}
-          onClick={handleManualRefresh}
-        >
-          {refreshCooldownSec > 0
-            ? `다음 갱신 ${refreshCooldownSec}초 후`
-            : "새로고침"}
-        </button>
-        {updatedAt && (
-          <span className="meta">
-            마지막 갱신:{" "}
-            {updatedAt.toLocaleString("ko-KR", KO_DATETIME_MEDIUM_SHORT)}
-            {krwPerUsd != null &&
-              ` · USD/KRW 약 ${krwPerUsd.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`}
-          </span>
-        )}
-      </div>
-
       {loading && rows.length === 0 && (
         <p className="skel">시세를 불러오는 중입니다…</p>
       )}
@@ -284,8 +279,7 @@ export default function App() {
               <h2 id="rank-heading">오늘의 상승률 TOP 3</h2>
             </div>
             <p className="rank-hint">
-              위 10개 종목 중 당일 상승(+)인 종목만 등락률 높은 순으로 상위 3개를 보여줍니다. 한·미
-              장 운영 시각 차이에 따라 등락률 의미가 달라질 수 있습니다.
+              위 10개 종목 중 당일 상승(+)인 종목만 등락률 높은 순으로 상위 3개를 보여줍니다.
             </p>
             {gainRankTop3.length === 0 ? (
               <p className="rank-empty">
