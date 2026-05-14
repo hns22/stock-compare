@@ -5,7 +5,7 @@ import { buildMarketSummaryBullets } from "./marketSummary";
 import "./App.css";
 
 /** 수동 새로고침 연타 시 무료 API 한도 방지(초) */
-const MANUAL_REFRESH_COOLDOWN_SEC = 60;
+const MANUAL_REFRESH_COOLDOWN_SEC = 30;
 
 function formatMoney(n: number, currency: string, maxFrac = 2): string {
   if (!Number.isFinite(n)) return "—";
